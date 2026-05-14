@@ -398,7 +398,124 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) EllesmereUIDB.enableGoldTracking = v end }
             ); y = y - h
 
-            -- Show Pinned & Recent Tips | Show Recent Items
+            -- Show Pinned Items | Show Recent Items (each with inline cog for OneBag)
+            local pinRecRow
+            pinRecRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Pinned Items",
+                  tooltip="Show the Pinned Items category in the sidebar and content grid.",
+                  getValue=function() return not EllesmereUIDB or EllesmereUIDB.bagShowPinnedItems ~= false end,
+                  setValue=function(v)
+                      EllesmereUIDB.bagShowPinnedItems = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="toggle", text="Show Recent Items",
+                  tooltip="Show the Recent Items category in the sidebar and content grid for newly acquired items.",
+                  getValue=function() return not EllesmereUIDB or EllesmereUIDB.bagShowRecentItems ~= false end,
+                  setValue=function(v)
+                      EllesmereUIDB.bagShowRecentItems = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                      EllesmereUI:RefreshPage()
+                  end }
+            ); y = y - h
+
+            -- Inline cog for Show Pinned Items: "Show in OneBag"
+            do
+                local _, pinCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Pinned Items Options",
+                    rows = {
+                        { type="toggle", label="Show in OneBag",
+                          get=function() return not EllesmereUIDB or EllesmereUIDB.bagPinnedInOneBag ~= false end,
+                          set=function(v)
+                              EllesmereUIDB.bagPinnedInOneBag = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                    },
+                })
+                local leftRgn = pinRecRow._leftRegion
+                local pcCog = CreateFrame("Button", nil, leftRgn)
+                pcCog:SetSize(26, 26)
+                pcCog:SetPoint("RIGHT", leftRgn._control, "LEFT", -8, 0)
+                pcCog:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+                local pcCogTex = pcCog:CreateTexture(nil, "OVERLAY")
+                pcCogTex:SetAllPoints()
+                pcCogTex:SetTexture(EllesmereUI.COGS_ICON)
+                local function pcCogOff() return EllesmereUIDB and EllesmereUIDB.bagShowPinnedItems == false end
+                pcCog:SetAlpha(pcCogOff() and 0.15 or 0.4)
+                pcCog:SetScript("OnEnter", function(self)
+                    if pcCogOff() then
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Pinned Items must be enabled"))
+                    else self:SetAlpha(0.7) end
+                end)
+                pcCog:SetScript("OnLeave", function(self)
+                    self:SetAlpha(pcCogOff() and 0.15 or 0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                pcCog:SetScript("OnClick", function(self)
+                    if not pcCogOff() then pinCogShow(self) end
+                end)
+                local pcBlock = CreateFrame("Frame", nil, pcCog)
+                pcBlock:SetAllPoints(); pcBlock:SetFrameLevel(pcCog:GetFrameLevel() + 10); pcBlock:EnableMouse(true)
+                pcBlock:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(pcCog, EllesmereUI.DisabledTooltip("Show Pinned Items must be enabled"))
+                end)
+                pcBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                if pcCogOff() then pcBlock:Show() else pcBlock:Hide() end
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    if pcCogOff() then pcCog:SetAlpha(0.15); pcBlock:Show()
+                    else pcCog:SetAlpha(0.4); pcBlock:Hide() end
+                end)
+            end
+
+            -- Inline cog for Show Recent Items: "Show in OneBag"
+            do
+                local _, recentCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Recent Items Options",
+                    rows = {
+                        { type="toggle", label="Show in OneBag",
+                          get=function() return EllesmereUIDB and EllesmereUIDB.bagRecentInOneBag == true end,
+                          set=function(v)
+                              EllesmereUIDB.bagRecentInOneBag = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                    },
+                })
+                local rightRgn = pinRecRow._rightRegion
+                local rcCog = CreateFrame("Button", nil, rightRgn)
+                rcCog:SetSize(26, 26)
+                rcCog:SetPoint("RIGHT", rightRgn._control, "LEFT", -8, 0)
+                rcCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+                local rcCogTex = rcCog:CreateTexture(nil, "OVERLAY")
+                rcCogTex:SetAllPoints()
+                rcCogTex:SetTexture(EllesmereUI.COGS_ICON)
+                local function rcCogOff() return EllesmereUIDB and EllesmereUIDB.bagShowRecentItems == false end
+                rcCog:SetAlpha(rcCogOff() and 0.15 or 0.4)
+                rcCog:SetScript("OnEnter", function(self)
+                    if rcCogOff() then
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Recent Items must be enabled"))
+                    else self:SetAlpha(0.7) end
+                end)
+                rcCog:SetScript("OnLeave", function(self)
+                    self:SetAlpha(rcCogOff() and 0.15 or 0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                rcCog:SetScript("OnClick", function(self)
+                    if not rcCogOff() then recentCogShow(self) end
+                end)
+                local rcBlock = CreateFrame("Frame", nil, rcCog)
+                rcBlock:SetAllPoints(); rcBlock:SetFrameLevel(rcCog:GetFrameLevel() + 10); rcBlock:EnableMouse(true)
+                rcBlock:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(rcCog, EllesmereUI.DisabledTooltip("Show Recent Items must be enabled"))
+                end)
+                rcBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                if rcCogOff() then rcBlock:Show() else rcBlock:Hide() end
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    if rcCogOff() then rcCog:SetAlpha(0.15); rcBlock:Show()
+                    else rcCog:SetAlpha(0.4); rcBlock:Hide() end
+                end)
+            end
+
+            -- Show Pinned & Recent Tips
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Show Pinned & Recent Tips",
                   tooltip="Show helpful tip text on Pinned Items and Recent Items category headers.",
@@ -407,13 +524,7 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUIDB.bagShowPinRecentTips = v
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                   end },
-                { type="toggle", text="Show Recent Items",
-                  tooltip="Show the Recent Items category in the sidebar and content grid for newly acquired items.",
-                  getValue=function() return not EllesmereUIDB or EllesmereUIDB.bagShowRecentItems ~= false end,
-                  setValue=function(v)
-                      EllesmereUIDB.bagShowRecentItems = v
-                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
-                  end }
+                { type="label", text="" }
             ); y = y - h
 
             _, h = W:Spacer(parent, y, 20); y = y - h
@@ -421,6 +532,19 @@ initFrame:SetScript("OnEvent", function(self)
             end) -- end pcall
             if not ok then print("|cffff0000[Bags Options ERROR]|r " .. tostring(result)) end
             return ok and result or 0
-        end
+        end,
+        onReset = function()
+            if not EllesmereUIDB then return end
+            -- Wipe all bag* and bank* prefixed keys + non-prefixed bags keys
+            local extraKeys = { enableGoldTracking = true, itemlevelFontSize = true, detachReagentBag = true, goldData = true }
+            for k in pairs(EllesmereUIDB) do
+                if type(k) == "string" then
+                    if k:sub(1, 3) == "bag" or k:sub(1, 4) == "bank" or extraKeys[k] then
+                        EllesmereUIDB[k] = nil
+                    end
+                end
+            end
+            EllesmereUI:InvalidatePageCache()
+        end,
     })
 end)

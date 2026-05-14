@@ -757,6 +757,7 @@ local function SkinInspectSheet()
             GetFFD(frame).textOverlay = txo
         end
         local txo = GetFFD(frame).textOverlay
+        txo:Show()
 
         if not GetFFD(frame).avgIlvlText then
             local ilvlFS = txo:CreateFontString(nil, "OVERLAY")

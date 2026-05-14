@@ -1480,10 +1480,10 @@ EllesmereUI.RegisterMigration({
         local targets = { "EllesmereUIMinimap", "EllesmereUIFriends", "EllesmereUIQuestTracker" }
         local disabled = {}
         for _, name in ipairs(targets) do
-            local state = C_AddOns.GetAddOnEnableState(name, char)
+            local state = C_AddOns.GetAddOnEnableState(name)
             if state ~= 0 then
                 if C_AddOns.DisableAddOn then
-                    C_AddOns.DisableAddOn(name, char)
+                    C_AddOns.DisableAddOn(name)
                     disabled[#disabled + 1] = name
                 end
             end

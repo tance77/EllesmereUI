@@ -79,11 +79,10 @@ end
 
 local function SetAddonEnabled(folder, enabled)
     if not folder or not C_AddOns then return end
-    local char = UnitName("player")
     if enabled then
-        if C_AddOns.EnableAddOn then C_AddOns.EnableAddOn(folder, char) end
+        if C_AddOns.EnableAddOn then C_AddOns.EnableAddOn(folder) end
     else
-        if C_AddOns.DisableAddOn then C_AddOns.DisableAddOn(folder, char) end
+        if C_AddOns.DisableAddOn then C_AddOns.DisableAddOn(folder) end
     end
 end
 

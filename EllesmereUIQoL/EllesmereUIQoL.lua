@@ -129,6 +129,7 @@ qolFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     do
         local _openableCache = {}  -- itemID -> true/false
+        local _failedItems = {}   -- itemID -> true (items that failed to open, skip forever)
         local _cacheBuilt = false
         local function IsEnabled()
             return EllesmereUIDB and EllesmereUIDB.autoOpenContainers ~= false
@@ -178,8 +179,17 @@ qolFrame:SetScript("OnEvent", function(self)
                                 if InCombatLockdown() then wipe(_pendingOpens); return end
                                 local item = _pendingOpens[idx]
                                 local info = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                                if info and info.itemID and _openableCache[info.itemID] then
+                                if info and info.itemID and _openableCache[info.itemID] and not _failedItems[info.itemID] then
+                                    local prevID = info.itemID
                                     C_Container.UseContainerItem(item.bag, item.slot)
+                                    C_Timer.After(0.15, function()
+                                        local after = C_Container.GetContainerItemInfo(item.bag, item.slot)
+                                        if after and after.itemID == prevID then
+                                            _failedItems[prevID] = true
+                                        end
+                                        OpenNext(idx + 1)
+                                    end)
+                                    return
                                 end
                                 C_Timer.After(0.15, function() OpenNext(idx + 1) end)
                             end
@@ -227,7 +237,7 @@ qolFrame:SetScript("OnEvent", function(self)
                         if _openableCache[info.itemID] == nil then
                             IsOpenableByID(info.itemID, bag, slot)
                         end
-                        if _openableCache[info.itemID] then
+                        if _openableCache[info.itemID] and not _failedItems[info.itemID] then
                             toOpen[#toOpen + 1] = { bag = bag, slot = slot }
                         end
                     end
@@ -239,8 +249,17 @@ qolFrame:SetScript("OnEvent", function(self)
                 if InCombatLockdown() then return end
                 local item = toOpen[idx]
                 local info2 = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                if info2 and info2.itemID and _openableCache[info2.itemID] then
+                if info2 and info2.itemID and _openableCache[info2.itemID] and not _failedItems[info2.itemID] then
+                    local prevID = info2.itemID
                     C_Container.UseContainerItem(item.bag, item.slot)
+                    C_Timer.After(0.15, function()
+                        local after = C_Container.GetContainerItemInfo(item.bag, item.slot)
+                        if after and after.itemID == prevID then
+                            _failedItems[prevID] = true
+                        end
+                        OpenNext(idx + 1)
+                    end)
+                    return
                 end
                 C_Timer.After(0.15, function() OpenNext(idx + 1) end)
             end

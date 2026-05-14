@@ -4,21 +4,21 @@
 --  Called by BuildQoLPage via EllesmereUI.BuildMacroFactory(parent, y, PP)
 -------------------------------------------------------------------------------
 
--- One-time migration: update EUI_Health macro body to the new static format
--- (recuperate + combat health pots). Only runs once per account.
+-- One-time migration: update EUI_Health macro body to use spell name instead of ID.
+-- Runs once per account (v2 flag).
 do
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_LOGIN")
     f:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
         if not EllesmereUIDB then EllesmereUIDB = {} end
-        if EllesmereUIDB._healthMacroMigrated then return end
+        if EllesmereUIDB._healthMacroMigratedV2 then return end
         local idx = GetMacroIndexByName("EUI_Health")
-        if idx == 0 then return end
+        if idx == 0 then EllesmereUIDB._healthMacroMigratedV2 = true; return end
         if InCombatLockdown() then return end
-        local body = "#showtooltip item:241304\n/cast [nocombat] spell:1231411\n/use [combat] item:241304\n/use [combat] item:241305"
+        local body = "#showtooltip item:241304\n/cast [nocombat] Recuperate\n/use [combat] item:241304\n/use [combat] item:241305"
         EditMacro(idx, nil, nil, body)
-        EllesmereUIDB._healthMacroMigrated = true
+        EllesmereUIDB._healthMacroMigratedV2 = true
     end)
 end
 
@@ -53,7 +53,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             name = "EUI_Health",
             icon = "Interface\\Icons\\inv_potion_131",
             label = "Health / Recuperate (Combat Based)",
-            fixedBody = "/cast [nocombat] spell:1231411\n/use [combat] item:241304\n/use [combat] item:241305",
+            fixedBody = "/cast [nocombat] Recuperate\n/use [combat] item:241304\n/use [combat] item:241305",
             fixedTooltip = "item:241304",
         },
         {

@@ -1,29 +1,45 @@
 -------------------------------------------------------------------------------
 --  EllesmereUIBags_Categories.lua
---  Category system based on GetItemInfo() type auto-classification.
+--  Category system based on Enum.ItemClass numeric IDs (locale-safe).
 --  Categories are hardcoded definitions. Users can rename, reorder, and group
 --  them via sidebar context menus. Icons and type rules are not customizable.
 -------------------------------------------------------------------------------
 
 local CategoryManager = {}
 
+-- Enum.ItemClass numeric IDs (locale-independent)
+local IC = Enum.ItemClass
+local IC_CONSUMABLE    = IC.Consumable       -- 0
+local IC_CONTAINER     = IC.Container        -- 1
+local IC_WEAPON        = IC.Weapon           -- 2
+local IC_GEM           = IC.Gem              -- 3
+local IC_ARMOR         = IC.Armor            -- 4
+local IC_REAGENT       = IC.Reagent          -- 5
+local IC_TRADESKILL    = IC.Tradegoods       -- 7
+local IC_ITEM_ENHANCE  = IC.ItemEnhancement  -- 8
+local IC_RECIPE        = IC.Recipe           -- 9
+local IC_QUEST         = IC.Questitem        -- 12
+local IC_MISC          = IC.Miscellaneous    -- 15
+local IC_PROFESSION    = 19                  -- Enum.ItemClass.Profession (Midnight)
+local IC_HOUSING       = 20                  -- Enum.ItemClass.Housing (Midnight)
+
 -- Hardcoded category definitions. Order here is the default order.
--- types = list of GetItemInfo() type strings to match
+-- types = list of Enum.ItemClass numeric IDs to match
 -- Empty types = catch-all (Uncategorized)
 local DEFAULT_CATEGORIES = {
     { name = "Pinned Items",       types = {}, isPinned = true, noGroup = true, noMove = true, icon = "friendslist-recentallies-Pin-yellow", isAtlas = true },
     { name = "Recent Items",       types = {}, isRecent = true, noGroup = true, noMove = true, icon = "auctionhouse-icon-clock", isAtlas = true },
     { name = "Reagent Bag",        types = {}, isReagentBag = true, noGroup = true, icon = 3622222 },
-    { name = "Item Set Gear",      types = { "Armor", "Weapon" }, isSetGear = true, icon = 4871338 },
-    { name = "Quest Items",        types = { "Quest" },                     icon = "Crosshair_Quest_64", isAtlas = true },
-    { name = "Weapons / Trinkets", types = { "Weapon" }, equipSlots = { "INVTYPE_TRINKET" }, icon = 3751725 },
-    { name = "Armor",              types = { "Armor" }, excludeEquipSlots = { "INVTYPE_TRINKET" }, icon = 4382688 },
-    { name = "Consumables",        types = { "Consumable" },                icon = 7548911 },
-    { name = "Trade Goods",        types = { "Tradeskill", "Reagent" },     icon = 132996 },
-    { name = "Gear Enhancements",    types = { "Gem", "Item Enhancement" },   icon = 7549094 },
-    { name = "Professions",          types = { "Profession", "Recipe" },    icon = 7548925 },
-    { name = "Housing",            types = { "Housing" },                   icon = 7726459 },
-    { name = "Miscellaneous",      types = { "Miscellaneous", "Container" }, isCatchAll = true, icon = 5524917 },
+    { name = "Item Set Gear",      types = { IC_ARMOR, IC_WEAPON }, isSetGear = true, icon = 4871338 },
+    { name = "Quest Items",        types = { IC_QUEST },                     icon = "Crosshair_Quest_64", isAtlas = true },
+    { name = "Weapons / Trinkets", types = { IC_WEAPON }, equipSlots = { "INVTYPE_TRINKET" }, icon = 3751725 },
+    { name = "Armor",              types = { IC_ARMOR }, excludeEquipSlots = { "INVTYPE_TRINKET" }, icon = 4382688 },
+    { name = "Consumables",        types = { IC_CONSUMABLE },                icon = 7548911 },
+    { name = "Trade Goods",        types = { IC_TRADESKILL, IC_REAGENT },    icon = 132996 },
+    { name = "Gear Enhancements",  types = { IC_GEM, IC_ITEM_ENHANCE },     icon = 7549094 },
+    { name = "Professions",        types = { IC_PROFESSION, IC_RECIPE },     icon = 7548925 },
+    { name = "Housing",            types = { IC_HOUSING },                   icon = 7726459 },
+    { name = "Miscellaneous",      types = { IC_MISC, IC_CONTAINER }, isCatchAll = true, icon = 5524917 },
 }
 
 -------------------------------------------------------------------------------
@@ -198,9 +214,9 @@ local function BuildSetGearLookup()
     end
 end
 
--- Manual overrides: itemID -> type string
+-- Manual overrides: itemID -> classID
 local ITEM_TYPE_OVERRIDES = {
-    [180653] = "Miscellaneous",
+    [180653] = IC_MISC,
 }
 
 -- Classify a single item. Returns category index (1-based) or nil for empty slots.
@@ -219,11 +235,11 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
 
     -- Check manual overrides first
     if itemID and ITEM_TYPE_OVERRIDES[itemID] then
-        local overrideType = ITEM_TYPE_OVERRIDES[itemID]
+        local overrideClassID = ITEM_TYPE_OVERRIDES[itemID]
         for i, cat in ipairs(cats) do
             if cat.types then
                 for _, t in ipairs(cat.types) do
-                    if t == overrideType then return i end
+                    if t == overrideClassID then return i end
                 end
             end
         end
@@ -236,17 +252,17 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
             for i, cat in ipairs(cats) do
                 if cat.types then
                     for _, t in ipairs(cat.types) do
-                        if t == "Quest" then return i end
+                        if t == IC_QUEST then return i end
                     end
                 end
             end
         end
     end
 
-    -- Get item type + equip slot from GetItemInfo
-    local _, _, _, _, _, itemType, _, _, equipSlot = GetItemInfo(itemLink)
-    if not itemType then
-        -- Item data not yet cached; classify as catch-all for now
+    -- Get classID + equip slot via GetItemInfoInstant (locale-safe numeric IDs)
+    local _, _, _, equipSlot, _, classID = GetItemInfoInstant(itemLink)
+    if not classID then
+        -- Item data not available; classify as catch-all for now
         for i, cat in ipairs(cats) do
             if cat.isCatchAll then return i end
         end
@@ -255,7 +271,7 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
 
     -- Equipment set gear check: if item is Armor/Weapon AND in an equipment set,
     -- route to the "Item Set Gear" category before normal type matching
-    if bag and slot and (itemType == "Armor" or itemType == "Weapon") then
+    if bag and slot and (classID == IC_ARMOR or classID == IC_WEAPON) then
         if _setGearLookup[bag * 1000 + slot] then
             for i, cat in ipairs(cats) do
                 if cat.isSetGear then return i end
@@ -263,23 +279,23 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
         end
     end
 
-    -- Walk categories and check if item type + equip slot matches
+    -- Walk categories and check if item classID + equip slot matches
     for i, cat in ipairs(cats) do
         if cat.types and #cat.types > 0 and not cat.isSetGear then
             local typeMatch = false
             for _, t in ipairs(cat.types) do
-                if t == itemType then typeMatch = true; break end
+                if t == classID then typeMatch = true; break end
             end
 
             -- equipSlots: match items of OTHER types that have these equip slots
-            -- (e.g. trinkets are type "Armor" but equipSlot "INVTYPE_TRINKET")
+            -- (e.g. trinkets are classID Armor but equipSlot "INVTYPE_TRINKET")
             if not typeMatch and cat.equipSlots and equipSlot then
                 for _, es in ipairs(cat.equipSlots) do
                     if es == equipSlot then typeMatch = true; break end
                 end
             end
 
-            -- excludeEquipSlots: reject items that match the type but have excluded equip slots
+            -- excludeEquipSlots: reject items that match the classID but have excluded equip slots
             if typeMatch and cat.excludeEquipSlots and equipSlot then
                 for _, es in ipairs(cat.excludeEquipSlots) do
                     if es == equipSlot then typeMatch = false; break end
@@ -301,7 +317,6 @@ end
 -- Each item in the array gets a .categoryIndex field set.
 -- Reusable tables for ClassifyAll (wiped each call, avoids per-refresh allocation)
 local _claCounts = {}
-local _claPinRemaining = {}
 local _claDisabledIdxSet = {}
 
 function CategoryManager:ClassifyAll(items)
@@ -311,24 +326,6 @@ function CategoryManager:ClassifyAll(items)
     for i = 1, #cats do _claCounts[i] = 0 end
     local counts = _claCounts
     local total = 0
-
-    -- Pin counts: track remaining pins per itemID
-    local pinnedCatIdx
-    for i, cat in ipairs(cats) do
-        if cat.isPinned then pinnedCatIdx = i; break end
-    end
-    wipe(_claPinRemaining)
-    local pinRemaining = _claPinRemaining
-    local pinnedSet = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
-    if pinnedSet and pinnedCatIdx then
-        for id, count in pairs(pinnedSet) do
-            if type(count) == "number" and count > 0 then
-                pinRemaining[id] = count
-            elseif count == true then
-                pinRemaining[id] = 1  -- legacy boolean format
-            end
-        end
-    end
 
     -- Disabled categories: items route to catch-all instead (keyed by _defaultName)
     local disabledCats = EllesmereUIDB and EllesmereUIDB.bagDisabledCategories
@@ -347,15 +344,7 @@ function CategoryManager:ClassifyAll(items)
 
     for _, data in ipairs(items) do
         if data.info and data.itemLink then
-            -- Check pin count before normal classification
-            local idx
-            local id = data.info.itemID
-            if pinnedCatIdx and id and pinRemaining[id] and pinRemaining[id] > 0 then
-                pinRemaining[id] = pinRemaining[id] - 1
-                idx = pinnedCatIdx
-            else
-                idx = self:ClassifyItem(data.itemLink, id, data.bag, data.slot)
-            end
+            local idx = self:ClassifyItem(data.itemLink, data.info.itemID, data.bag, data.slot)
             -- Reroute disabled categories to catch-all
             if disabledIdxSet and idx and disabledIdxSet[idx] and catchAllIdx then
                 idx = catchAllIdx

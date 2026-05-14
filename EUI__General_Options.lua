@@ -2061,25 +2061,6 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(exportBtn, "TOPLEFT", rowFrame, "TOPLEFT", startX, -math.floor((ROW_H - ITEM_H) / 2))
             exportBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
             EllesmereUI.MakeStyledButton(exportBtn, "Export Profile", 13, PROF_BTN_COLOURS, function()
-                -- If CDM is loaded, show spec picker before exporting
-                if C_AddOns.IsAddOnLoaded("EllesmereUICooldownManager") then
-                    local specInfo = EllesmereUI.GetCDMSpecInfo()
-                    if #specInfo > 0 then
-                        for _, sp in ipairs(specInfo) do sp.checked = sp.hasData end
-                        EllesmereUI:ShowCDMSpecPickerPopup({
-                            title       = "Choose Your Included CDM Spell Assignments",
-                            subtitle    = "Select all specs you want included with your exported profile",
-                            confirmText = "Export",
-                            specs       = specInfo,
-                            onConfirm   = function(sel)
-                                local str = EllesmereUI.ExportCurrentProfile(sel)
-                                if str then EllesmereUI:ShowExportPopup(str) end
-                            end,
-                            onCancel    = function() end,
-                        })
-                        return
-                    end
-                end
                 local str = EllesmereUI.ExportCurrentProfile()
                 if str then EllesmereUI:ShowExportPopup(str) end
             end)
@@ -2118,20 +2099,6 @@ initFrame:SetScript("OnEvent", function(self)
                         scaleWarning = scaleWarnText,
                         onConfirm   = function(name)
                             if not name or name == "" then return end
-                            -- Grab the imported CDM data for the spec picker
-                            local importedCDMSnap
-                            if C_AddOns.IsAddOnLoaded("EllesmereUICooldownManager") then
-                                -- New format: spellAssignments on the payload data
-                                if payload and payload.data and payload.data.spellAssignments then
-                                    importedCDMSnap = payload.data.spellAssignments
-                                -- Backward compat: legacy CDM addon data with specProfiles
-                                elseif payload and payload.data and payload.data.addons then
-                                    local cdm = payload.data.addons["EllesmereUICooldownManager"]
-                                    if cdm and cdm.specProfiles then
-                                        importedCDMSnap = { specProfiles = cdm.specProfiles, barGlows = cdm.barGlows }
-                                    end
-                                end
-                            end
 
                             local ok, err, status = EllesmereUI.ImportProfile(importStr, name)
 
@@ -2142,29 +2109,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 })
                                 ReloadUI()
                             elseif ok then
-                                -- Show spec picker if imported data has CDM specProfiles
-                                local importedSpecInfo = importedCDMSnap
-                                    and EllesmereUI.GetImportedCDMSpecInfo(importedCDMSnap)
-                                if importedSpecInfo and #importedSpecInfo > 0 then
-                                    for _, sp in ipairs(importedSpecInfo) do sp.checked = true end
-                                    local fontWillChange = EllesmereUI.ProfileChangesFont(payload and payload.data)
-                                    EllesmereUI:ShowCDMSpecPickerPopup({
-                                        title       = "Choose Your Included CDM Spell Assignments",
-                                        subtitle    = "Select all specs you want included with your imported profile",
-                                        confirmText = "Apply",
-                                        specs       = importedSpecInfo,
-                                        onConfirm   = function(sel)
-                                            EllesmereUI.ApplyImportedSpecProfiles(importedCDMSnap, sel)
-                                            ReloadUI()
-                                        end,
-                                        onCancel = function()
-                                            ReloadUI()
-                                        end,
-                                    })
-                                else
-                                    -- No CDM data to pick — reload immediately
-                                    ReloadUI()
-                                end
+                                ReloadUI()
                             else
                                 EllesmereUI:ShowInfoPopup({ title = "Import Failed", content = err or "Unknown error" })
                             end
@@ -2206,20 +2151,6 @@ initFrame:SetScript("OnEvent", function(self)
                     onConfirm    = function(name)
                         if not name or name == "" then return end
 
-                        local importedCDMSnap
-                        if C_AddOns.IsAddOnLoaded("EllesmereUICooldownManager") then
-                            -- New format: spellAssignments on the payload data
-                            if payload and payload.data and payload.data.spellAssignments then
-                                importedCDMSnap = payload.data.spellAssignments
-                            -- Backward compat: legacy CDM addon data with specProfiles
-                            elseif payload and payload.data and payload.data.addons then
-                                local cdm = payload.data.addons["EllesmereUICooldownManager"]
-                                if cdm and cdm.specProfiles then
-                                    importedCDMSnap = { specProfiles = cdm.specProfiles, barGlows = cdm.barGlows }
-                                end
-                            end
-                        end
-
                         local ok, err, status = EllesmereUI.ImportProfile(exportString, name)
 
                         if ok and status == "spec_locked" then
@@ -2228,25 +2159,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 content = "\"" .. name .. "\" was saved but cannot be loaded because this spec has an assigned profile. Switch specs or remove the spec assignment to use it.",
                             })
                         elseif ok then
-                            local importedSpecInfo = importedCDMSnap
-                                and EllesmereUI.GetImportedCDMSpecInfo(importedCDMSnap)
-                            if importedSpecInfo and #importedSpecInfo > 0 then
-                                for _, sp in ipairs(importedSpecInfo) do sp.checked = true end
-                                local fontWillChange = EllesmereUI.ProfileChangesFont(payload and payload.data)
-                                EllesmereUI:ShowCDMSpecPickerPopup({
-                                    title       = "Choose Your Included CDM Spell Assignments",
-                                    subtitle    = "Select all specs you want included with your imported profile",
-                                    confirmText = "Apply",
-                                    specs       = importedSpecInfo,
-                                    onConfirm   = function(sel)
-                                        EllesmereUI.ApplyImportedSpecProfiles(importedCDMSnap, sel)
-                                        ReloadUI()
-                                    end,
-                                    onCancel = function()
-                                        ReloadUI()
-                                    end,
-                                })
-                            else
+                            do
                                 local fontWillChange = EllesmereUI.ProfileChangesFont(payload and payload.data)
                                 EllesmereUI.RefreshAllAddons()
                                 ddLabel:SetText(EllesmereUI.GetActiveProfileName())

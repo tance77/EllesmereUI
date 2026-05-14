@@ -26,6 +26,7 @@ local THUMB_MIN_H = 20
 -- Runtime state
 local _selectedView = 0   -- 0 = All Bank Tabs, -1 = OneBank, -2 = All Warbank, -3 = OneWarbank, >0 = tab index
 local _allTabs = {}        -- populated on bank open: { bagID, name, isWarband, numSlots, icon }
+local _warbandOnly = false -- true when opened via portable warbank (AccountBanker interaction)
 
 local function GetBankSidebarWidth()
     local collapsed = EllesmereUIDB and EllesmereUIDB.bankSidebarCollapsed
@@ -409,6 +410,8 @@ do
     local PP = EUI and EUI.PP
     local ar, ag, ab = GetAccentRGB()
 
+    local GOLD_R, GOLD_G, GOLD_B = 0.855, 0.722, 0.259  -- #dab842
+
     local function MakeStyledFooterBtn(label, tooltipText)
         local btn = CreateFrame("Button", nil, footer)
         btn:SetSize(70, 18)
@@ -416,24 +419,24 @@ do
         btn:SetFrameLevel(footer:GetFrameLevel() + 2)
 
         if PP and PP.CreateBorder then
-            PP.CreateBorder(btn, 1, 1, 1, 0.4, 1, "OVERLAY", 7)
+            PP.CreateBorder(btn, GOLD_R, GOLD_G, GOLD_B, 0.8, 1, "OVERLAY", 7)
         end
 
         local lbl = btn:CreateFontString(nil, "OVERLAY")
         SetBankFont(lbl, 9)
         lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
         lbl:SetText(label)
-        lbl:SetTextColor(1, 1, 1, 0.5)
+        lbl:SetTextColor(GOLD_R, GOLD_G, GOLD_B, 0.8)
         btn._label = lbl
 
         btn:SetScript("OnEnter", function(self)
-            self._label:SetTextColor(1, 1, 1, 0.75)
-            if PP and PP.SetBorderColor then PP.SetBorderColor(self, 1, 1, 1, 0.7) end
+            self._label:SetTextColor(GOLD_R, GOLD_G, GOLD_B, 1)
+            if PP and PP.SetBorderColor then PP.SetBorderColor(self, GOLD_R, GOLD_G, GOLD_B, 1) end
             if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, tooltipText) end
         end)
         btn:SetScript("OnLeave", function(self)
-            self._label:SetTextColor(1, 1, 1, 0.5)
-            if PP and PP.SetBorderColor then PP.SetBorderColor(self, 1, 1, 1, 0.4) end
+            self._label:SetTextColor(GOLD_R, GOLD_G, GOLD_B, 0.8)
+            if PP and PP.SetBorderColor then PP.SetBorderColor(self, GOLD_R, GOLD_G, GOLD_B, 0.8) end
             if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
         end)
         return btn
@@ -518,6 +521,8 @@ do
             depositItemsLabel:SetText("Deposit Reagents")
             depositItemsBtn._bankType = Enum.BankType.Character
         end
+        local r, g, b = GetAccentRGB()
+        depositItemsLabel:SetTextColor(r, g, b, 1)
         depositItemsBtn:SetWidth(depositItemsLabel:GetStringWidth() + 16)
         depositItemsBtn:Show()
         withdrawMoneyBtn:Show()
@@ -909,6 +914,122 @@ function EUI_Bank:DepositCursorItemIntoTab(bagID)
         end
     end
     return false
+end
+
+-------------------------------------------------------------------------------
+--  Transfer Queue: queues rapid right-click deposits so they don't collide
+--
+--  allocatedSlots tracks target bank slots that have a pending transfer so
+--  the next deposit picks a different slot.  Items that are still locked from
+--  a prior move get queued and re-processed on the next BAG_UPDATE.
+-------------------------------------------------------------------------------
+local _transferQueue = {}       -- { {bag, slot}, ... }
+local _allocatedSlots = {}      -- [bagID*1000+slot] = true
+local _transferEventFrame
+
+local function WipeTransferState()
+    wipe(_transferQueue)
+    wipe(_allocatedSlots)
+    if _transferEventFrame then
+        _transferEventFrame:UnregisterAllEvents()
+    end
+end
+
+local function IsSlotAllocated(bagID, slot)
+    return _allocatedSlots[bagID * 1000 + slot]
+end
+
+local function AllocateSlot(bagID, slot)
+    _allocatedSlots[bagID * 1000 + slot] = true
+end
+
+--- Find target in a specific bank bag, skipping allocated slots.
+--- Tries partial stacks first, then empty slots.
+local function FindTargetSlot(targetBag, srcItemID)
+    local numSlots = C_Container.GetContainerNumSlots(targetBag)
+    if numSlots == 0 then return nil end
+    local maxStack = C_Item.GetItemMaxStackSizeByID(srcItemID) or 1
+    -- Partial stack first
+    if maxStack > 1 then
+        for slot = 1, numSlots do
+            if not IsSlotAllocated(targetBag, slot) then
+                local info = C_Container.GetContainerItemInfo(targetBag, slot)
+                if info and info.itemID == srcItemID and info.stackCount < maxStack then
+                    return slot
+                end
+            end
+        end
+    end
+    -- Empty slot
+    for slot = 1, numSlots do
+        if not IsSlotAllocated(targetBag, slot) then
+            if not C_Container.GetContainerItemInfo(targetBag, slot) then
+                return slot
+            end
+        end
+    end
+    return nil
+end
+
+local function ProcessTransfer(srcBag, srcSlot)
+    local loc = ItemLocation:CreateFromBagAndSlot(srcBag, srcSlot)
+    if not C_Item.DoesItemExist(loc) or C_Item.IsLocked(loc) then
+        return false -- still locked, needs re-queue
+    end
+    local bank = _G.EUI_BankFrame
+    if not bank or not bank:IsVisible() then return true end -- bank closed, discard
+    local targetBag = bank:GetSelectedTabBagID()
+    if not targetBag then return true end -- no tab selected, discard
+    local info = C_Container.GetContainerItemInfo(srcBag, srcSlot)
+    if not info or not info.itemID then return true end
+    local targetSlot = FindTargetSlot(targetBag, info.itemID)
+    if not targetSlot then return true end -- no space, discard
+    AllocateSlot(targetBag, targetSlot)
+    C_Container.PickupContainerItem(srcBag, srcSlot)
+    C_Container.PickupContainerItem(targetBag, targetSlot)
+    return true
+end
+
+local function DrainQueue()
+    -- Clear allocations for slots that now have items (transfer completed)
+    for key in pairs(_allocatedSlots) do
+        local bagID = math.floor(key / 1000)
+        local slot = key % 1000
+        if C_Container.GetContainerItemInfo(bagID, slot) then
+            _allocatedSlots[key] = nil
+        end
+    end
+    -- Process queued items
+    local remaining = {}
+    for _, entry in ipairs(_transferQueue) do
+        if not ProcessTransfer(entry[1], entry[2]) then
+            remaining[#remaining + 1] = entry
+        end
+    end
+    wipe(_transferQueue)
+    for _, entry in ipairs(remaining) do
+        _transferQueue[#_transferQueue + 1] = entry
+    end
+    -- Unregister when idle
+    if #_transferQueue == 0 and not next(_allocatedSlots) then
+        if _transferEventFrame then _transferEventFrame:UnregisterAllEvents() end
+    end
+end
+
+local function EnsureTransferEventFrame()
+    if _transferEventFrame then return end
+    _transferEventFrame = CreateFrame("Frame")
+    _transferEventFrame:SetScript("OnEvent", function() DrainQueue() end)
+end
+
+--- Public: queue a bag item for transfer to the selected bank tab.
+--- Called from the bag button PreClick hook.
+function EUI_Bank:QueueTransfer(srcBag, srcSlot)
+    EnsureTransferEventFrame()
+    _transferEventFrame:RegisterEvent("BAG_UPDATE")
+    if not ProcessTransfer(srcBag, srcSlot) then
+        _transferQueue[#_transferQueue + 1] = { srcBag, srcSlot }
+    end
 end
 
 local function GetOrCreateBankSlot(idx)
@@ -1624,24 +1745,30 @@ function BuildBankSidebar()
         end
     end
 
-    -- Update header item count (total across both)
+    -- Update header item count
     if EUI_Bank._headerItemCount then
-        EUI_Bank._headerItemCount:SetText((charUsed + warbUsed) .. " / " .. (charTotal + warbTotal) .. " Items")
+        if _warbandOnly then
+            EUI_Bank._headerItemCount:SetText(warbUsed .. " / " .. warbTotal .. " Items")
+        else
+            EUI_Bank._headerItemCount:SetText((charUsed + warbUsed) .. " / " .. (charTotal + warbTotal) .. " Items")
+        end
     end
 
     -- View indices: 0 = All Bank Tabs, -1 = OneBank, -2 = All Warbank Tabs, -3 = OneWarbank
     -- >0 = individual tab index in _allTabs
 
     local defaultOneBag = EllesmereUIDB and EllesmereUIDB.bagDefaultOneBag
-    if defaultOneBag then
-        RenderSidebarEntry(-1, "OneBank", 1542860, charUsed, _selectedView == -1)
-        RenderSidebarEntry(0, "All Bank Tabs", 413587, charUsed, _selectedView == 0)
-    else
-        RenderSidebarEntry(0, "All Bank Tabs", 413587, charUsed, _selectedView == 0)
-        RenderSidebarEntry(-1, "OneBank", 1542860, charUsed, _selectedView == -1)
+    if not _warbandOnly then
+        if defaultOneBag then
+            RenderSidebarEntry(-1, "OneBank", 1542860, charUsed, _selectedView == -1)
+            RenderSidebarEntry(0, "All Bank Tabs", 413587, charUsed, _selectedView == 0)
+        else
+            RenderSidebarEntry(0, "All Bank Tabs", 413587, charUsed, _selectedView == 0)
+            RenderSidebarEntry(-1, "OneBank", 1542860, charUsed, _selectedView == -1)
+        end
     end
 
-    -- Warband "All" and "One" entries (right below OneBank)
+    -- Warband "All" and "One" entries
     local hasWarband = false
     for _, tab in ipairs(_allTabs) do
         if tab.isWarband then hasWarband = true; break end
@@ -1676,19 +1803,23 @@ function BuildBankSidebar()
         y = y - (div:GetHeight() or 1) - 4
     end
 
-    ShowDivider("_bankTabDivider")
+    if not _warbandOnly then
+        ShowDivider("_bankTabDivider")
 
-    -- Character bank tabs
-    for ti, tab in ipairs(_allTabs) do
-        if not tab.isWarband then
-            RenderSidebarEntry(ti, tab.name, tab.icon or 133652, tab._usedSlots, _selectedView == ti)
+        -- Character bank tabs
+        for ti, tab in ipairs(_allTabs) do
+            if not tab.isWarband then
+                RenderSidebarEntry(ti, tab.name, tab.icon or 133652, tab._usedSlots, _selectedView == ti)
+            end
         end
-    end
-    -- Purchase character bank tab (show one grayed-out entry if more can be bought)
-    if C_Bank and C_Bank.CanPurchaseBankTab and C_Bank.HasMaxBankTabs
-        and C_Bank.CanPurchaseBankTab(Enum.BankType.Character)
-        and not C_Bank.HasMaxBankTabs(Enum.BankType.Character) then
-        RenderPurchaseEntry(Enum.BankType.Character, "Buy Bank Tab")
+        -- Purchase character bank tab (show one grayed-out entry if more can be bought)
+        if C_Bank and C_Bank.CanPurchaseBankTab and C_Bank.HasMaxBankTabs
+            and C_Bank.CanPurchaseBankTab(Enum.BankType.Character)
+            and not C_Bank.HasMaxBankTabs(Enum.BankType.Character) then
+            RenderPurchaseEntry(Enum.BankType.Character, "Buy Bank Tab")
+        end
+    else
+        if sidebarChild._bankTabDivider then sidebarChild._bankTabDivider:Hide() end
     end
 
     -- Warband individual tabs
@@ -1745,6 +1876,14 @@ eventFrame:RegisterEvent("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED")
 eventFrame:RegisterEvent("PLAYER_MONEY")
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "BANKFRAME_OPENED" then
+        -- Detect portable warbank (AccountBanker = warband only, no character bank)
+        _warbandOnly = C_PlayerInteractionManager
+            and C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)
+            or false
+        if _warbandOnly then
+            local defaultOneBag = EllesmereUIDB and EllesmereUIDB.bagDefaultOneBag
+            _selectedView = defaultOneBag and -3 or -2
+        end
         -- Position
         EUI_Bank:ClearAllPoints()
         if EllesmereUIDB and EllesmereUIDB.bankPosition then
@@ -1791,6 +1930,8 @@ eventFrame:SetScript("OnEvent", function(_, event)
         end)
 
     elseif event == "BANKFRAME_CLOSED" then
+        _warbandOnly = false
+        WipeTransferState()
         -- Clear search on close
         if EUI_Bank._searchBox then
             EUI_Bank._searchBox:SetText("")

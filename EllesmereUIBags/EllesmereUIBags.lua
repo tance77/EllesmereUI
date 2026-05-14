@@ -236,6 +236,9 @@ end
 -- Must run AFTER ApplySavedOrder so the first occurrence in visual order wins.
 -- Returns a new list; originals are not modified (except _mergedCount on winners).
 local function MergeDuplicates(items)
+    -- Clear stale _mergedCount from prior merge passes in the same refresh
+    -- (the same data table can be merged in multiple sections: category + pinned/recent)
+    for _, data in ipairs(items) do data._mergedCount = nil end
     local seen = {}
     local out = {}
     for _, data in ipairs(items) do
@@ -779,7 +782,7 @@ local function CreateHeader()
                         SaveCategoryOrder(mi, memberItems or {})
                     end
                 end
-            elseif not cat.isRecent then
+            elseif not cat.isRecent and not cat.isPinned then
                 local catItems = itemsByCat[ci]
                 if #catItems > 1 then
                     PreCacheSortFields(catItems); table.sort(catItems, VisualSortCompare)
@@ -1575,27 +1578,22 @@ local function GetOrCreateSlot(idx)
     end)
 
     -- Right-click deposit routing: when a specific bank tab is selected,
-    -- intercept right-click and deposit into that tab instead of letting
-    -- Blizzard route to the first available slot across all tabs.
+    -- queue the transfer instead of letting Blizzard route to the first
+    -- available slot across all tabs. The queue handles locked items and
+    -- slot allocation so rapid clicks don't collide.
     btn:HookScript("PreClick", function(self, button)
         if button ~= "RightButton" then return end
         local bank = _G.EUI_BankFrame
         if not bank or not bank:IsVisible() then return end
         local targetBag = bank:GetSelectedTabBagID()
         if not targetBag then return end
-        -- Pick up the item from this bag slot
         local srcBag = self:GetParent():GetID()
         local srcSlot = self:GetID()
         if not srcBag or not srcSlot or srcSlot == 0 then return end
         local info = C_Container.GetContainerItemInfo(srcBag, srcSlot)
         if not info then return end
-        C_Container.PickupContainerItem(srcBag, srcSlot)
-        -- Place into the selected bank tab
-        if bank:DepositCursorItemIntoTab(targetBag) then
-            -- Handled; clear the template's pending click so it doesn't
-            -- double-process. The item is already moved.
-            self._euiBankRouted = true
-        end
+        bank:QueueTransfer(srcBag, srcSlot)
+        self._euiBankRouted = true
     end)
     btn:HookScript("OnClick", function(self, button)
         if button == "RightButton" and self._euiBankRouted then
@@ -3251,8 +3249,10 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         else
             local count = categoryCounts and categoryCounts[ci] or 0
             local isUserCreated = not cat.isCatchAll and (not cat.types or #cat.types == 0)
-            -- Skip Recent Items if disabled
-            if cat.isRecent and EllesmereUIDB and EllesmereUIDB.bagShowRecentItems == false then
+            -- Skip Pinned/Recent Items if disabled
+            if cat.isPinned and EllesmereUIDB and EllesmereUIDB.bagShowPinnedItems == false then
+                -- skip
+            elseif cat.isRecent and EllesmereUIDB and EllesmereUIDB.bagShowRecentItems == false then
                 -- skip
             else
                 displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent }
@@ -3788,12 +3788,13 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
-    -- 2b. Compute recent items count (items stay in normal categories, recent is display-only)
-    local recentCatIdx
+    -- 2b. Compute display-only counts (pinned + recent stay in normal categories)
+    local recentCatIdx, pinnedCatIdx
     do
         local cats = EUI_CategoryManager:GetCategories()
         for i, cat in ipairs(cats) do
-            if cat.isRecent then recentCatIdx = i; break end
+            if cat.isRecent then recentCatIdx = i end
+            if cat.isPinned then pinnedCatIdx = i end
         end
     end
     local recentCount = 0
@@ -3805,6 +3806,17 @@ function EUI_Bags:RefreshInventory()
             end
         end
         categoryCounts[recentCatIdx] = recentCount
+    end
+    local showPinned = not EllesmereUIDB or EllesmereUIDB.bagShowPinnedItems ~= false
+    local pinnedSet = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+    if pinnedCatIdx and pinnedSet and showPinned then
+        local pinnedCount = 0
+        for _, data in ipairs(tempItems) do
+            if data.info and data.info.itemID and pinnedSet[data.info.itemID] then
+                pinnedCount = pinnedCount + 1
+            end
+        end
+        categoryCounts[pinnedCatIdx] = pinnedCount
     end
 
     -- 3. Update sidebar
@@ -3819,12 +3831,13 @@ function EUI_Bags:RefreshInventory()
     -- 4. Filter items by selected category/group + search
     local _t0Filter = ProfBegin("FilterAndSort")
     local isRecentView = recentCatIdx and selectedCategoryIndex == recentCatIdx
+    local isPinnedView = pinnedCatIdx and selectedCategoryIndex == pinnedCatIdx
     local filterSet = nil  -- nil = show all
     if selectedGroupName then
         filterSet = {}
         local members = EUI_CategoryManager:GetGroupMembers(selectedGroupName)
         for _, mi in ipairs(members) do filterSet[mi] = true end
-    elseif selectedCategoryIndex > 0 and not isRecentView then
+    elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView then
         filterSet = { [selectedCategoryIndex] = true }
     end
 
@@ -3833,6 +3846,8 @@ function EUI_Bags:RefreshInventory()
         local show = true
         if isRecentView then
             show = data.info and data.info.itemID and EUI_Bags._recentItems and EUI_Bags._recentItems[data.info.itemID]
+        elseif isPinnedView then
+            show = data.info and data.info.itemID and pinnedSet and pinnedSet[data.info.itemID]
         elseif filterSet then
             show = data.categoryIndex and filterSet[data.categoryIndex]
         end
@@ -3890,6 +3905,10 @@ function EUI_Bags:RefreshInventory()
     local catTitleSize = GetCatTitleSize()
     for _, hdr in pairs(_catHeaders) do
         hdr:Hide(); hdr._hint:SetText("")
+        if hdr._hideBtn then hdr._hideBtn:Hide() end
+        hdr._line:ClearAllPoints()
+        hdr._line:SetPoint("LEFT", hdr._hint, "RIGHT", 6, 0)
+        hdr._line:SetPoint("RIGHT", hdr, "RIGHT", -SPACING, 0)
         SetBagFont(hdr._label, catTitleSize)
         SetBagFont(hdr._hint, catTitleSize - 1)
     end
@@ -3957,23 +3976,9 @@ function EUI_Bags:RefreshInventory()
     ProfEnd("GridSetup", _t0GridSetup)
 
     if selectedCategoryIndex == -1 then
-        -- "OneBag" view: Main Bags + Reagent Bag sections
+        -- "OneBag" view: Pinned Items (display-only) + Main Bags + Reagent Bag
         -- Reuse already-collected tempItems + emptySlots instead of re-querying bags
         local headerIdx = 0
-
-        -- Main Bags (0-4): all items + empties from bags 0-4 in bag:slot order
-        local mainSlots = {}
-        local mainFilled = 0
-        for _, d in ipairs(tempItems) do
-            if d.bag ~= 5 then mainSlots[#mainSlots + 1] = d; mainFilled = mainFilled + 1 end
-        end
-        for _, d in ipairs(emptySlots) do
-            if d.bag ~= 5 then mainSlots[#mainSlots + 1] = d end
-        end
-        table.sort(mainSlots, function(a, b)
-            if a.bag ~= b.bag then return a.bag < b.bag end
-            return a.slot < b.slot
-        end)
 
         -- OneBag warning label (created once, reused)
         if not EUI_Bags._oneBagWarning then
@@ -3994,6 +3999,184 @@ function EUI_Bags:RefreshInventory()
             warn:Show()
             curY = curY - 14 - 5
         end
+
+        -- Pinned Items quickview (display-only duplicates)
+        local showPinnedOneBag = (not EllesmereUIDB or EllesmereUIDB.bagPinnedInOneBag ~= false) and showPinned
+        if showPinnedOneBag then
+            local pinItems = {}
+            if pinnedSet then
+                for _, d in ipairs(tempItems) do
+                    if d.info and d.info.itemID and pinnedSet[d.info.itemID] then
+                        pinItems[#pinItems + 1] = d
+                    end
+                end
+            end
+            if #pinItems > 0 then pinItems = MergeDuplicates(pinItems) end
+            headerIdx = headerIdx + 1
+            local pinHdr = GetOrCreateCatHeader(headerIdx)
+            pinHdr:SetParent(child)
+            pinHdr:ClearAllPoints()
+            pinHdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+            pinHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
+            local showTips = not EllesmereUIDB or EllesmereUIDB.bagShowPinRecentTips ~= false
+            pinHdr._label:SetText("Pinned Items")
+            pinHdr._hint:SetText(showTips and "(Middle Click to Add or Remove)" or "")
+            if not pinHdr._hideBtn then
+                local hb = CreateFrame("Button", nil, pinHdr)
+                hb:SetSize(30, 16)
+                hb._fs = hb:CreateFontString(nil, "OVERLAY")
+                SetBagFont(hb._fs, 9)
+                hb._fs:SetAllPoints()
+                hb._fs:SetText("Hide")
+                hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                hb:SetScript("OnEnter", function(self)
+                    self._fs:SetTextColor(1, 1, 1, 0.9)
+                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Hides Pinned Items. Re-show in settings.") end
+                end)
+                hb:SetScript("OnLeave", function(self)
+                    self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                end)
+                pinHdr._hideBtn = hb
+            end
+            pinHdr._hideBtn:ClearAllPoints()
+            pinHdr._hideBtn:SetPoint("RIGHT", pinHdr, "RIGHT", 0, 0)
+            pinHdr._hideBtn:SetScript("OnClick", function()
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.bagPinnedInOneBag = false
+                EUI_Bags:RefreshInventory()
+            end)
+            pinHdr._hideBtn:Show()
+            pinHdr._line:ClearAllPoints()
+            pinHdr._line:SetPoint("LEFT", pinHdr._hint, "RIGHT", 6, 0)
+            pinHdr._line:SetPoint("RIGHT", pinHdr._hideBtn, "LEFT", -6, 0)
+            pinHdr:Show()
+            curY = curY - 22
+
+            for j, data in ipairs(pinItems) do
+                slotIdx = slotIdx + 1
+                local btn = GetOrCreateSlot(slotIdx)
+                btn:GetParent():SetParent(child)
+                local col = (j - 1) % columns
+                local row = math.floor((j - 1) / columns)
+                RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
+            end
+            -- Pin "+" button
+            local pinItemCount = #pinItems
+            do
+                local pinIdx = pinItemCount + 1
+                slotIdx = slotIdx + 1
+                local pinSlot = GetOrCreateSlot(slotIdx)
+                pinSlot:GetParent():SetParent(child)
+                local col = (pinIdx - 1) % columns
+                local row = math.floor((pinIdx - 1) / columns)
+                RenderButton(pinSlot, { bag = 0, slot = 0 }, slotIdx, col, row, startX, curY, columns)
+                local ov = GetOrCreatePinOverlay()
+                ov:SetParent(child)
+                ov:ClearAllPoints()
+                ov:SetAllPoints(pinSlot)
+                ov:Show()
+                pinItemCount = pinItemCount + 1
+            end
+            -- Pad remaining slots in last row
+            local pinRemainder = pinItemCount % columns
+            local pinPadCount = pinRemainder == 0 and 0 or (columns - pinRemainder)
+            if pinItemCount == 0 then pinPadCount = columns end
+            if pinPadCount > 0 then
+                RenderEmptyPad(pinItemCount, pinPadCount)
+            end
+            local pinTotal = pinItemCount + pinPadCount
+            local pinRows = math.ceil(pinTotal / columns)
+            curY = curY - (pinRows * (SLOT_SIZE + SPACING)) - 6
+        end
+
+        -- Recent Items quickview (display-only duplicates)
+        local showRecentOneBag = EllesmereUIDB and EllesmereUIDB.bagRecentInOneBag == true
+        local showRecent = not EllesmereUIDB or EllesmereUIDB.bagShowRecentItems ~= false
+        if showRecentOneBag and showRecent then
+            local recentItems = {}
+            if EUI_Bags._recentItems then
+                for _, d in ipairs(tempItems) do
+                    if d.info and d.info.itemID and EUI_Bags._recentItems[d.info.itemID] then
+                        recentItems[#recentItems + 1] = d
+                    end
+                end
+            end
+            if #recentItems > 0 then recentItems = MergeDuplicates(recentItems) end
+            headerIdx = headerIdx + 1
+            local recHdr = GetOrCreateCatHeader(headerIdx)
+            recHdr:SetParent(child)
+            recHdr:ClearAllPoints()
+            recHdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+            recHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
+            local showTips = not EllesmereUIDB or EllesmereUIDB.bagShowPinRecentTips ~= false
+            recHdr._label:SetText("Recent Items")
+            recHdr._hint:SetText(showTips and "(Extra quickview display, your items are also in their category)" or "")
+            if not recHdr._hideBtn then
+                local hb = CreateFrame("Button", nil, recHdr)
+                hb:SetSize(30, 16)
+                hb._fs = hb:CreateFontString(nil, "OVERLAY")
+                SetBagFont(hb._fs, 9)
+                hb._fs:SetAllPoints()
+                hb._fs:SetText("Hide")
+                hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                hb:SetScript("OnEnter", function(self)
+                    self._fs:SetTextColor(1, 1, 1, 0.9)
+                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Hides Recent Items. Re-show in settings.") end
+                end)
+                hb:SetScript("OnLeave", function(self)
+                    self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                end)
+                recHdr._hideBtn = hb
+            end
+            recHdr._hideBtn:ClearAllPoints()
+            recHdr._hideBtn:SetPoint("RIGHT", recHdr, "RIGHT", 0, 0)
+            recHdr._hideBtn:SetScript("OnClick", function()
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.bagRecentInOneBag = false
+                EUI_Bags:RefreshInventory()
+            end)
+            recHdr._hideBtn:Show()
+            recHdr._line:ClearAllPoints()
+            recHdr._line:SetPoint("LEFT", recHdr._hint, "RIGHT", 6, 0)
+            recHdr._line:SetPoint("RIGHT", recHdr._hideBtn, "LEFT", -6, 0)
+            recHdr:Show()
+            curY = curY - 22
+
+            for j, data in ipairs(recentItems) do
+                slotIdx = slotIdx + 1
+                local btn = GetOrCreateSlot(slotIdx)
+                btn:GetParent():SetParent(child)
+                local col = (j - 1) % columns
+                local row = math.floor((j - 1) / columns)
+                RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
+            end
+            local recItemCount = #recentItems
+            local recRemainder = recItemCount % columns
+            local recPadCount = recRemainder == 0 and 0 or (columns - recRemainder)
+            if recItemCount == 0 then recPadCount = columns end
+            if recPadCount > 0 then
+                RenderEmptyPad(recItemCount, recPadCount)
+            end
+            local recTotal = recItemCount + recPadCount
+            local recRows = math.ceil(recTotal / columns)
+            curY = curY - (recRows * (SLOT_SIZE + SPACING)) - 6
+        end
+
+        -- Main Bags (0-4): all items + empties from bags 0-4 in bag:slot order
+        local mainSlots = {}
+        local mainFilled = 0
+        for _, d in ipairs(tempItems) do
+            if d.bag ~= 5 then mainSlots[#mainSlots + 1] = d; mainFilled = mainFilled + 1 end
+        end
+        for _, d in ipairs(emptySlots) do
+            if d.bag ~= 5 then mainSlots[#mainSlots + 1] = d end
+        end
+        table.sort(mainSlots, function(a, b)
+            if a.bag ~= b.bag then return a.bag < b.bag end
+            return a.slot < b.slot
+        end)
 
         headerIdx = headerIdx + 1
         local mainHdr = GetOrCreateCatHeader(headerIdx)
@@ -4101,6 +4284,42 @@ function EUI_Bags:RefreshInventory()
                 hdr._label:SetText(sectionName .. " (" .. itemCount .. ")")
                 hdr._hint:SetText("")
             end
+            -- Hide button for Pinned / Recent sections
+            if showPinAdd or alwaysShow then
+                if not hdr._hideBtn then
+                    local hb = CreateFrame("Button", nil, hdr)
+                    hb:SetSize(30, 16)
+                    hb._fs = hb:CreateFontString(nil, "OVERLAY")
+                    SetBagFont(hb._fs, 9)
+                    hb._fs:SetAllPoints()
+                    hb._fs:SetText("Hide")
+                    hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    hb:SetScript("OnEnter", function(self)
+                        self._fs:SetTextColor(1, 1, 1, 0.9)
+                        if EUI.ShowWidgetTooltip then
+                            EUI.ShowWidgetTooltip(self, self._tooltip)
+                        end
+                    end)
+                    hb:SetScript("OnLeave", function(self)
+                        self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                    end)
+                    hb:SetScript("OnClick", function(self)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB[self._dbKey] = false
+                        EUI_Bags:RefreshInventory()
+                    end)
+                    hdr._hideBtn = hb
+                end
+                hdr._hideBtn._dbKey = showPinAdd and "bagShowPinnedItems" or "bagShowRecentItems"
+                hdr._hideBtn._tooltip = showPinAdd and "Hides Pinned Items. Re-show in settings." or "Hides Recent Items. Re-show in settings."
+                hdr._hideBtn:ClearAllPoints()
+                hdr._hideBtn:SetPoint("RIGHT", hdr, "RIGHT", 0, 0)
+                hdr._hideBtn:Show()
+                hdr._line:ClearAllPoints()
+                hdr._line:SetPoint("LEFT", hdr._hint, "RIGHT", 6, 0)
+                hdr._line:SetPoint("RIGHT", hdr._hideBtn, "LEFT", -6, 0)
+            end
             hdr:Show()
             curY = curY - 22
 
@@ -4153,8 +4372,20 @@ function EUI_Bags:RefreshInventory()
 
         local hiddenSet = EllesmereUIDB and EllesmereUIDB.bagHiddenInAllItems or {}
         for ci, cat in ipairs(cats) do
-            if cat.isRecent then
-                -- Recent Items: duplicate section (items also appear in their normal category)
+            if cat.isPinned then
+                -- Pinned Items: display-only duplicate (items also appear in their normal category)
+                if pinnedSet and showPinned then
+                    local pinItems = {}
+                    for _, data in ipairs(displayItems) do
+                        if data.info and data.info.itemID and pinnedSet[data.info.itemID] then
+                            pinItems[#pinItems + 1] = data
+                        end
+                    end
+                    if #pinItems > 0 then pinItems = MergeDuplicates(pinItems) end
+                    RenderSection(cat.name, pinItems, false, true)
+                end
+            elseif cat.isRecent then
+                -- Recent Items: display-only duplicate (items also appear in their normal category)
                 if EUI_Bags._recentItems
                    and (not EllesmereUIDB or EllesmereUIDB.bagShowRecentItems ~= false) then
                     local recentItems = {}

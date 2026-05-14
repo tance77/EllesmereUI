@@ -2353,10 +2353,30 @@ initFrame:SetScript("OnEvent", function(self)
             end
             table.sort(selZoneNames)
 
-            -- Check for duplicate (same spellID with same zone set)
+            -- Check for existing reminder with same spellID: merge zones
             for _, r in ipairs(p.talentReminders) do
                 if r.spellID == selectedTalentSpellID then
-                    -- Merge: if same talent, just skip (user can delete and re-add)
+                    -- Merge new zones into existing reminder
+                    local existingSet = {}
+                    for _, zn in ipairs(r.zoneNames or {}) do existingSet[zn] = true end
+                    local added = 0
+                    for _, zn in ipairs(selZoneNames) do
+                        if not existingSet[zn] then
+                            r.zoneNames[#r.zoneNames + 1] = zn
+                            added = added + 1
+                        end
+                    end
+                    table.sort(r.zoneNames)
+                    -- Reset selection
+                    wipe(selectedZoneMap)
+                    selectedTalentSpellID = nil
+                    selectedTalentName = nil
+                    selectedTalentSource = nil
+                    zoneDDLbl:SetText("Select Dungeon/Raid/PvP Zone")
+                    if talentDDLbl then talentDDLbl:SetText("Select a talent..."); talentDDLbl:SetTextColor(1, 1, 1, 0.50) end
+                    RebuildReminderList()
+                    RefreshAll()
+                    if _G._EABR_TR_RequestRefresh then _G._EABR_TR_RequestRefresh() end
                     return
                 end
             end

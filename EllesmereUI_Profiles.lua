@@ -846,24 +846,12 @@ function EllesmereUI.ExportProfile(profileName)
         }
     end
     local exportData = DeepCopy(profileData)
-    -- Exclude spec-specific data from export (bar glows, tracking bars)
+    -- Exclude spec-specific data from export
     exportData.trackedBuffBars = nil
     exportData.tbbPositions = nil
-    -- Include spell assignments from the dedicated store on the export copy
-    -- (barGlows and trackedBuffBars excluded from export -- spec-specific)
-    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
-    if sa then
-        local spCopy = DeepCopy(sa.specProfiles or {})
-        -- Strip spec-specific non-exportable data from each spec profile
-        for _, prof in pairs(spCopy) do
-            prof.barGlows = nil
-            prof.trackedBuffBars = nil
-            prof.tbbPositions = nil
-        end
-        exportData.spellAssignments = {
-            specProfiles = spCopy,
-        }
-    end
+    -- CDM spell assignments are NOT exported -- users share spell layouts
+    -- via Blizzard's built-in CDM sharing system instead.
+    exportData.spellAssignments = nil
     local payload = { version = 3, type = "full", data = exportData }
     local serialized = Serializer.Serialize(payload)
     if not LibDeflate then return nil end
@@ -1011,40 +999,12 @@ do
         -- Reset assignments
         dummyDB._cdmPick._cdm = {}
 
-        -- Build a set of specIDs that are in the caller's list
-        local knownSpecs = {}
-        for _, sp in ipairs(specs) do
-            local numID = tonumber(sp.key)
-            if numID then knownSpecs[numID] = sp end
-        end
-
-        -- Build disabledSpecs map (specID -> tooltip string)
-        -- Any spec NOT in the caller's list gets disabled too
-        local disabledSpecs = {}
-        -- Build preCheckedSpecs set
+        -- Pre-check specs that have data; all specs remain selectable
         local preCheckedSpecs = {}
-
         for _, sp in ipairs(specs) do
             local numID = tonumber(sp.key)
-            if numID then
-                if not sp.hasData then
-                    disabledSpecs[numID] = "Create a CDM spell layout for this spec first"
-                end
-                if sp.checked then
-                    preCheckedSpecs[numID] = true
-                end
-            end
-        end
-
-        -- Disable all specs not in the caller's list (other classes, etc.)
-        local SPEC_DATA = EllesmereUI._SPEC_DATA
-        if SPEC_DATA then
-            for _, cls in ipairs(SPEC_DATA) do
-                for _, spec in ipairs(cls.specs) do
-                    if not knownSpecs[spec.id] then
-                        disabledSpecs[spec.id] = "Not available for this operation"
-                    end
-                end
+            if numID and sp.checked then
+                preCheckedSpecs[numID] = true
             end
         end
 
@@ -1055,7 +1015,7 @@ do
             title           = opts.title,
             subtitle        = opts.subtitle,
             buttonText      = opts.confirmText or "Confirm",
-            disabledSpecs   = disabledSpecs,
+            disabledSpecs   = {},
             preCheckedSpecs = preCheckedSpecs,
             onConfirm       = opts.onConfirm and function(assignments)
                 -- Convert numeric specID assignments back to string keys
@@ -1070,24 +1030,11 @@ do
     end
 end
 
-function EllesmereUI.ExportCurrentProfile(selectedSpecs)
+function EllesmereUI.ExportCurrentProfile()
     local profileData = EllesmereUI.SnapshotAllAddons()
-    -- Include spell assignments from the dedicated store
-    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
-    if sa then
-        profileData.spellAssignments = {
-            specProfiles = DeepCopy(sa.specProfiles or {}),
-            -- barGlows excluded from export (spec-specific, stored in specProfiles)
-        }
-        -- Filter by selected specs if provided
-        if selectedSpecs and profileData.spellAssignments.specProfiles then
-            for key in pairs(profileData.spellAssignments.specProfiles) do
-                if not selectedSpecs[key] then
-                    profileData.spellAssignments.specProfiles[key] = nil
-                end
-            end
-        end
-    end
+    -- CDM spell assignments are NOT exported -- users share spell layouts
+    -- via Blizzard's built-in CDM sharing system instead.
+    profileData.spellAssignments = nil
     local sw, sh = GetPhysicalScreenSize()
     -- Use EllesmereUI's own stored scale (UIParent scale), not Blizzard's CVar
     local euiScale = EllesmereUIDB and EllesmereUIDB.ppUIScale or (UIParent and UIParent:GetScale()) or 1

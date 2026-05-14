@@ -1229,12 +1229,12 @@ do
         b:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
         b:SetHeight(edgeSize); b:Show()
         l:ClearAllPoints()
-        l:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-        l:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+        l:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -edgeSize)
+        l:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, edgeSize)
         l:SetWidth(edgeSize); l:Show()
         r:ClearAllPoints()
-        r:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-        r:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        r:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -edgeSize)
+        r:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, edgeSize)
         r:SetWidth(edgeSize); r:Show()
 
         local bc = container._bdColor
@@ -4638,7 +4638,7 @@ local function CreateMainFrame()
             pwrBtn._folder = info.folder
             pwrBtn._display = info.display
             pwrBtn:SetScript("OnEnter", function(self)
-                local enabled = EllesmereUI.IsAddonEnabled(self._folder)
+                local enabled = IsAddonLoaded(self._folder)
                 if enabled then
                     self._tex:SetVertexColor(0.824, 0.212, 0.212, 1)
                 else
@@ -4653,7 +4653,7 @@ local function CreateMainFrame()
                 if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
             end)
             pwrBtn:SetScript("OnClick", function(self)
-                local enabled = EllesmereUI.IsAddonEnabled(self._folder)
+                local enabled = IsAddonLoaded(self._folder)
                 local action = enabled and "disable" or "enable"
                 local folder = self._folder
                 EllesmereUI:ShowConfirmPopup({
@@ -7326,7 +7326,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "7.6.9"
+EllesmereUI.VERSION = "7.7"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
