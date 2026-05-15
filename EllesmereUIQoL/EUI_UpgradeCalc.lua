@@ -503,8 +503,12 @@ function Calc:RescanSlot(slotID, onDone)
     if not loc or not SelectSlotInUpgrader(loc) then
         if onDone then onDone(false) end; return
     end
+    -- Guard the async window with _scanning so a second upgrade event within
+    -- 0.3 s can't launch a concurrent rescan and overwrite the wrong slot.
+    Calc._scanning = true
     local db = DB()
     C_Timer.After(0.3, function()
+        Calc._scanning = false
         if InCombatLockdown() then
             if onDone then onDone(false) end; return
         end
