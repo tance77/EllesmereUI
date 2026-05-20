@@ -90,7 +90,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type    = "toggle",
-          text    = \"Warcraft Recorder Compatibility\",
+          text    = "Warcraft Recorder Compatibility",
           tooltip = "Delays stopping combat logging by 30 seconds after leaving an instance. Recommended for Warcraft Recorder compatibility.",
           getValue = function()
               local v = Cfg().delaystop
@@ -100,7 +100,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
           setValue = function(v)
               Cfg().delaystop = v
           end },
-        nil
+        { type = "label", text = "" }
     ); y = y - h
 
     parent:SetHeight(math.abs(y - yOffset))

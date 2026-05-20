@@ -3074,3 +3074,32 @@ function ns.SetupEditModeLock()
         end)
     end
 end
+
+-------------------------------------------------------------------------------
+--  Swiftmend Brightness Fix (CDM scan)
+-------------------------------------------------------------------------------
+do
+    _G._ECDM_ScanSwiftmend = nil
+    local function ScanCDMSwiftmend()
+        local _, cls = UnitClass("player")
+        if cls ~= "DRUID" then return end
+        local hook = EllesmereUI and EllesmereUI._HookSwiftmendIcon
+        local spellID = EllesmereUI and EllesmereUI._SWIFTMEND_SPELL
+        if not hook or not spellID then return end
+        local root = _G["EssentialCooldownViewer"]
+        if not root or not root.GetChildren then return end
+        for _, child in ipairs({ root:GetChildren() }) do
+            local id = child.cooldownID
+            if id and not issecretvalue(id) and id == spellID then
+                local ico = child.Icon
+                if ico then hook(ico) end
+            end
+        end
+    end
+    _G._ECDM_ScanSwiftmend = ScanCDMSwiftmend
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:SetScript("OnEvent", function()
+        C_Timer.After(1, ScanCDMSwiftmend)
+    end)
+end

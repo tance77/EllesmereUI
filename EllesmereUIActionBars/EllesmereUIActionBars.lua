@@ -6763,7 +6763,7 @@ do
             end
             if unit and unit ~= "player" then return end
             -- Protected instances (M+/raid) block SetShown during combat
-            if InCombatLockdown() and IsInProtectedInstance and IsInProtectedInstance() then return end
+            if InCombatLockdown() and EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then return end
             local show = CanExitVehicle and CanExitVehicle()
             btn:SetShown(show or false)
         end)
@@ -10495,4 +10495,33 @@ _qkbHookFrame:SetScript("OnEvent", function(self, event)
         end
     end
 end)
+
+-------------------------------------------------------------------------------
+--  Swiftmend Brightness Fix (action bar scan)
+--  Scans all EABButton slots for Swiftmend by matching icon file ID.
+--  Re-scans on slot changes so bar rearrangement is covered.
+-------------------------------------------------------------------------------
+;(function()
+    local function ScanABSwiftmend()
+        local _, cls = UnitClass("player")
+        if cls ~= "DRUID" then return end
+        local hook   = EllesmereUI and EllesmereUI._HookSwiftmendIcon
+        local iconID = EllesmereUI and EllesmereUI._SWIFTMEND_ICON
+        if not hook or not iconID then return end
+        for slot = 1, 180 do
+            local btn = _G["EABButton" .. slot]
+            if btn and btn.icon then
+                local t = btn.icon:GetTexture()
+                if not issecretvalue(t) and t == iconID then hook(btn.icon) end
+            end
+        end
+    end
+    _G._EAB_ScanSwiftmend = ScanABSwiftmend
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+    f:SetScript("OnEvent", function()
+        C_Timer.After(0.5, ScanABSwiftmend)
+    end)
+end)()
 

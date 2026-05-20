@@ -4918,7 +4918,7 @@ local function StartAddon()
 
     EUI_Bags.bg = EUI_Bags:CreateTexture(nil, "BACKGROUND", nil, 0)
     EUI_Bags.bg:SetAllPoints()
-    EUI_Bags.bg:SetAtlas("housing-basic-panel--stone-background")
+    EUI_Bags.bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
     EUI_Bags.bg:SetTexCoord(0, 1, 0, 1)
 
     -- Dark overlay on top of the atlas (25% black)

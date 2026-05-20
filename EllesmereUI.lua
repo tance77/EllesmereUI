@@ -3148,13 +3148,21 @@ local function CreateConfirmPopup()
     -- Popups render at default UI scale — no custom scaling needed.
     -- (Dimmer stays at scale 1 so it covers the full screen.)
 
-    -- Background: stone texture with dark overlay
+    -- Background: flat dark default, optional stone atlas for modern style
+    local popBgFlat = SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
+    popBgFlat:SetAllPoints()
     local popBgAtlas = popup:CreateTexture(nil, "BACKGROUND")
-    popBgAtlas:SetAtlas("housing-basic-panel--stone-background")
+    popBgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+    popBgAtlas:SetTexCoord(0.25, 1, 0, 0.75)
     popBgAtlas:SetAllPoints()
+    popBgAtlas:Hide()
     local popBgOverlay = popup:CreateTexture(nil, "BACKGROUND", nil, 1)
-    popBgOverlay:SetColorTexture(0, 0, 0, 0.75)
+    popBgOverlay:SetColorTexture(0, 0, 0, 0.6)
     popBgOverlay:SetAllPoints()
+    popBgOverlay:Hide()
+    popup._popBgFlat = popBgFlat
+    popup._popBgAtlas = popBgAtlas
+    popup._popBgOverlay = popBgOverlay
 
     -- Pixel-perfect border
     MakeBorder(popup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
@@ -3329,6 +3337,12 @@ function EllesmereUI:ShowConfirmPopup(opts)
     -- Force-close any widget tooltip so it doesn't linger behind the popup
     if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
     local popup = CreateConfirmPopup()
+
+    -- Background style: flat (default) or modern Blizzard stone
+    local modern = opts.modernBlizz
+    popup._popBgFlat:SetShown(not modern)
+    popup._popBgAtlas:SetShown(modern == true)
+    popup._popBgOverlay:SetShown(modern == true)
 
     popup._title:SetText(opts.title or "Confirm")
     popup._msg:SetText(opts.message or "Are you sure?")
@@ -3910,12 +3924,20 @@ function EllesmereUI:ShowInputPopup(opts)
         popup:SetFrameStrata("FULLSCREEN_DIALOG")
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
 
+        local popBgFlat = SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
+        popBgFlat:SetAllPoints()
         local popBgAtlas = popup:CreateTexture(nil, "BACKGROUND")
-        popBgAtlas:SetAtlas("housing-basic-panel--stone-background")
+        popBgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+        popBgAtlas:SetTexCoord(0.25, 1, 0, 0.75)
         popBgAtlas:SetAllPoints()
+        popBgAtlas:Hide()
         local popBgOverlay = popup:CreateTexture(nil, "BACKGROUND", nil, 1)
-        popBgOverlay:SetColorTexture(0, 0, 0, 0.75)
+        popBgOverlay:SetColorTexture(0, 0, 0, 0.6)
         popBgOverlay:SetAllPoints()
+        popBgOverlay:Hide()
+        popup._popBgFlat = popBgFlat
+        popup._popBgAtlas = popBgAtlas
+        popup._popBgOverlay = popBgOverlay
 
         MakeBorder(popup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
 
@@ -4126,6 +4148,12 @@ function EllesmereUI:ShowInputPopup(opts)
     end
 
     local popup = self._inputPopup
+
+    -- Background style: flat (default) or modern Blizzard stone
+    local modern = opts.modernBlizz
+    popup._popBgFlat:SetShown(not modern)
+    popup._popBgAtlas:SetShown(modern == true)
+    popup._popBgOverlay:SetShown(modern == true)
 
     popup._title:SetText(opts.title or "Enter Name")
     popup._msg:SetText(opts.message or "")
@@ -7639,7 +7667,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "7.7.7"
+EllesmereUI.VERSION = "7.7.9"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -9073,4 +9101,38 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
     end
 end
 
+-------------------------------------------------------------------------------
+--  Swiftmend Brightness Fix (shared hook utility)
+--  Blizzard dims Swiftmend based on Efflorescence state (secret value in
+--  Midnight). Child addons call this on icon textures they identify as
+--  Swiftmend. The hook prevents vertex-color dimming and desaturation.
+-------------------------------------------------------------------------------
+do
+    local hooked = {}
+    local function isEnabled()
+        return not EllesmereUIDB or EllesmereUIDB.brightenSwiftmend ~= false
+    end
+    function EllesmereUI._HookSwiftmendIcon(tex)
+        if not tex or hooked[tex] then
+            -- Already hooked; just force bright if re-enabling
+            if tex and hooked[tex] and isEnabled() then
+                tex:SetVertexColor(1, 1, 1)
+            end
+            return
+        end
+        hooked[tex] = true
+        local vcGuard = false
+        hooksecurefunc(tex, "SetVertexColor", function(_, r, g, b)
+            if not vcGuard and isEnabled() and not (r == 1 and g == 1 and b == 1) then
+                vcGuard = true
+                tex:SetVertexColor(1, 1, 1)
+                vcGuard = false
+            end
+        end)
+        -- Force bright immediately (icon may already be dimmed before hook)
+        if isEnabled() then tex:SetVertexColor(1, 1, 1) end
+    end
+    EllesmereUI._SWIFTMEND_SPELL = 18562
+    EllesmereUI._SWIFTMEND_ICON  = 134914
+end
 

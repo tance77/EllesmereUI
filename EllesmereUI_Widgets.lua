@@ -5587,7 +5587,8 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         end
         local SEARCH_H = searchable and 26 or 0
         local needsScroll = maxVisibleItems and checkableCount > maxVisibleItems
-        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4) or contentH) + SEARCH_H
+        -- +2 accounts for scroll frame 1px top + 1px bottom insets so non-scrolling menus don't scroll
+        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4) or (contentH + 4)) + SEARCH_H
         menu = CreateFrame("Frame", nil, UIParent)
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)

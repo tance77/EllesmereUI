@@ -440,10 +440,8 @@ end
 --  Accent color helper
 -------------------------------------------------------------------------------
 local function GetAccentRGB()
-    if EUI.ResolveThemeColor then
-        local db = EllesmereUIDB or {}
-        return EUI.ResolveThemeColor(db.activeTheme or "EllesmereUI")
-    end
+    local EG = EUI.ELLESMERE_GREEN
+    if EG then return EG.r, EG.g, EG.b end
     return EUI.DEFAULT_ACCENT_R or 12/255,
            EUI.DEFAULT_ACCENT_G or 210/255,
            EUI.DEFAULT_ACCENT_B or 157/255
@@ -2172,7 +2170,7 @@ local function CreateDMWindow(winIdx)
 
     header:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" or W.windowLocked then return end
-        if IsInProtectedInstance and IsInProtectedInstance() then return end
+        if EUI.InProtectedInstance and EUI.InProtectedInstance() then return end
         local cx, cy = GetCursorPosition(); local es = frame:GetEffectiveScale()
         dragStartCX = cx/es; dragStartCY = cy/es
         dragStartLeft = frame:GetLeft(); dragStartTop = frame:GetTop()
@@ -2406,7 +2404,7 @@ local function CreateDMWindow(winIdx)
 
     W.resizeGrip:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" or W.windowLocked then return end
-        if IsInProtectedInstance and IsInProtectedInstance() then return end
+        if EUI.InProtectedInstance and EUI.InProtectedInstance() then return end
         local left, top = frame:GetLeft(), frame:GetTop()
         if left and top then frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top) end
         resizeAnchorLeft = left; resizeAnchorTop = top

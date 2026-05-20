@@ -1601,15 +1601,29 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
     local tickW = hashWidth or 1
     local tR, tG, tB, tA = hashR or 1, hashG or 1, hashB or 1, hashA or 0.7
 
+    -- Tick textures must live on a frame ABOVE the inner StatusBar (_sb) so the
+    -- fill texture doesn't cover them. Use a dedicated overlay frame parented to
+    -- the outer bar container, sitting one level above the inner StatusBar.
+    if not sb._tickOverlay then
+        local ov = CreateFrame("Frame", nil, sb)
+        ov:SetAllPoints()
+        local innerSb = sb._sb
+        if innerSb then
+            ov:SetFrameLevel(innerSb:GetFrameLevel() + 1)
+        end
+        sb._tickOverlay = ov
+    end
+    local tickParent = sb._tickOverlay
+
     -- Create tick textures as needed
     while #tickCache < #vals do
-        local t = sb:CreateTexture(nil, "OVERLAY", nil, 7)
+        local t = tickParent:CreateTexture(nil, "OVERLAY", nil, 7)
         t:SetSnapToPixelGrid(false)
         t:SetTexelSnappingBias(0)
         tickCache[#tickCache + 1] = t
     end
 
-    local pxW = PP and PP.Scale(tickW) or tickW
+    local pxW = PP and (tickW * PP.mult) or tickW
     local barW = sb:GetWidth()
     local barH = sb:GetHeight()
     for i, v in ipairs(vals) do
@@ -2821,9 +2835,24 @@ local function UpdateSecondaryResource()
                 if not maxTainted and maxC <= 0 then maxC = 1 end
             end
             -- Only call SetMinMaxValues if max actually changed (prevents flicker)
-            if secondaryBar._lastMaxC ~= maxC then
+            local maxChanged = secondaryBar._lastMaxC ~= maxC
+            if maxChanged then
                 secondaryBar._lastMaxC = maxC
                 secondaryBar:SetMinMaxValues(0, maxC)
+            end
+            -- Reapply hash line positions when max changes or on first valid layout
+            -- (bar width may be 0 at BuildBars time before layout settles)
+            local barW = secondaryBar:GetWidth()
+            if barW > 0 and (maxChanged or not secondaryBar._hashApplied) then
+                secondaryBar._hashApplied = true
+                local _rtTsEntry = ResolveThresholdSpecEntry(sp)
+                local _rtTickStr = (_rtTsEntry and _rtTsEntry.hashValues ~= "") and _rtTsEntry.hashValues or sp.tickValues
+                local _rtHW = _rtTsEntry and _rtTsEntry.hashWidth or 1
+                local _rtHR = _rtTsEntry and _rtTsEntry.hashColorR or 1
+                local _rtHG = _rtTsEntry and _rtTsEntry.hashColorG or 1
+                local _rtHB = _rtTsEntry and _rtTsEntry.hashColorB or 1
+                local _rtHA = _rtTsEntry and _rtTsEntry.hashColorA or 0.7
+                ApplyResourceBarTicks(secondaryBar, maxC, _rtTickStr, secondaryBarTicks, _rtHW, _rtHR, _rtHG, _rtHB, _rtHA)
             end
             -- Apply fill color (dark theme / class colored / custom).
             -- Brewmaster stagger uses threshold colors unless darkTheme is active.

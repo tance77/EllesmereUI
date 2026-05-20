@@ -309,7 +309,7 @@ local function SkinInspectSheet()
         GetFFD(frame).bg:Show()
     else
         GetFFD(frame).bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-        GetFFD(frame).bg:SetAtlas("housing-basic-panel--stone-background")
+        GetFFD(frame).bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
         GetFFD(frame).bg:SetAllPoints(frame)
         GetFFD(frame).bg:SetAlpha(1)
         GetFFD(frame).bgOverlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
