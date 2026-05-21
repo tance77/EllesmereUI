@@ -54,18 +54,28 @@ local healthMacroPendingUpdate = false
 local function ApplyHealthRecoveryMacro(items)
     items = items or CollectHealthRecoveryItems()
     local key = HealthRecoverySequenceKey(items)
-    if key == lastHealthRecoveryKey then return end
-    lastHealthRecoveryKey = key
 
     local idx = GetMacroIndexByName(EUI_HEALTH_MACRO_NAME)
-    if idx == 0 then return end
+    if idx == 0 then
+        lastHealthRecoveryKey = key
+        healthMacroPendingUpdate = false
+        return
+    end
 
     if InCombatLockdown() then
-        healthMacroPendingUpdate = true
+        if key ~= lastHealthRecoveryKey then
+            healthMacroPendingUpdate = true
+        end
+        return
+    end
+
+    if key == lastHealthRecoveryKey then
+        healthMacroPendingUpdate = false
         return
     end
 
     EditMacro(idx, nil, nil, EllesmereUI.BuildHealthRecoveryMacroBody(GetHealthMacroDB(), items))
+    lastHealthRecoveryKey = key
     healthMacroPendingUpdate = false
 end
 
@@ -105,6 +115,7 @@ do
     f:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_REGEN_ENABLED" then
             if healthMacroPendingUpdate then
+                healthMacroPendingUpdate = false
                 ApplyHealthRecoveryMacro()
             end
             return
