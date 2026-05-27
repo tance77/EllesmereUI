@@ -1465,7 +1465,7 @@ function EUI_Bank:RefreshBank()
                     if btn._textOverlay then btn.IconOverlay:SetParent(btn._textOverlay) end
                 else btn.IconOverlay:SetAlpha(0) end
             end
-            if btn.icon and info and info.itemID then
+            if btn.icon and info and info.itemID and itemLink and IsEquippableItem(itemLink) then
                 local id = info.itemID
                 local canUse = _canUseCache[id]
                 if canUse == nil and C_PlayerInfo and C_PlayerInfo.CanUseItem then

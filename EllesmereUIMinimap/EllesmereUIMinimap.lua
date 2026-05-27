@@ -2564,22 +2564,9 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             end
         end
 
-        -- Minimap Group Button (Blizzard native)
-        local groupBtn = _G.MinimapGroupButton
-        if groupBtn then
-            if heb.groupButton then
-                groupBtn:Hide()
-                if not GetFFD(groupBtn)._onShowHooked then
-                    GetFFD(groupBtn)._onShowHooked = true
-                    groupBtn:HookScript("OnShow", function(self)
-                        local m = MinimapDB()
-                        local h = m and m.hideExtraBtns
-                        if h and h.groupButton then self:Hide() end
-                    end)
-                end
-            else
-                groupBtn:Show()
-            end
+        -- Flyout toggle (EUI group button for addon icons)
+        if flyoutToggle and heb.groupButton then
+            flyoutToggle:Hide()
         end
     end
 
@@ -3005,7 +2992,9 @@ local function ApplyMinimap()
 
     -- Show/hide flyout toggle based on whether any grouped buttons exist
     local groupedButtons = CollectFlyoutButtons()
-    if #groupedButtons > 0 then
+    local mp2 = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+    local hideGroupBtn = mp2 and mp2.hideExtraBtns and mp2.hideExtraBtns.groupButton
+    if #groupedButtons > 0 and not hideGroupBtn then
         flyoutToggle:Show()
     else
         flyoutToggle:Hide()

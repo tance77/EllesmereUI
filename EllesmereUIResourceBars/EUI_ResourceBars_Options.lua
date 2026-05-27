@@ -1884,10 +1884,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline cog on Show Class Resource: Spacing + Hide Power Bar
         do
             local rgn = classEnableRow._leftRegion
-            local function IsEnhanceShaman()
-                local _, cf = UnitClass("player")
-                return cf == "SHAMAN" and GetSpecialization() == 2
-            end
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Class Resource",
                 rows = {
@@ -1902,29 +1898,6 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v)
                           local p = DB(); if not p then return end
                           p.secondary.hidePowerIfResource = v; RebuildClass()
-                      end },
-                    { type = "toggle", label = "Enhance 5 Bar Style",
-                      disabled = function() return not IsEnhanceShaman() end,
-                      disabledTooltip = "Enhancement Shaman only",
-                      get = function() local p = DB(); return p and p.secondary.enhanceFiveBar end,
-                      set = function(v)
-                          local p = DB(); if not p then return end
-                          p.secondary.enhanceFiveBar = v; RebuildClass()
-                      end },
-                    { type = "colorpicker", label = "Enhance Overflow Bars",
-                      disabled = function() return not IsEnhanceShaman() or not (DB() and DB().secondary.enhanceFiveBar) end,
-                      disabledTooltip = "Enable Enhance 5 Bar Style",
-                      get = function()
-                          local p = DB(); if not p then return 1, 0.6, 0.2 end
-                          local s = p.secondary
-                          return s.enhanceOverflowR or 1, s.enhanceOverflowG or 0.6, s.enhanceOverflowB or 0.2
-                      end,
-                      set = function(r, g, b)
-                          local p = DB(); if not p then return end
-                          p.secondary.enhanceOverflowR = r
-                          p.secondary.enhanceOverflowG = g
-                          p.secondary.enhanceOverflowB = b
-                          SmoothRefresh()
                       end },
                 },
             })
@@ -3235,6 +3208,50 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUI:RefreshPage()
                       end },
                     { type = "label", text = "" }); y = y - h
+            end
+            if playerClass == "SHAMAN" then
+                local enhRow
+                enhRow, h = W:DualRow(parent, y,
+                    { type = "toggle", text = "Enhance 5 Bar Style",
+                      disabled = function()
+                          local p = DB()
+                          return (p and not p.secondary.enabled) or GetSpecialization() ~= 2
+                      end,
+                      disabledTooltip = "Enhancement Shaman with Class Resource enabled",
+                      getValue = function() local p = DB(); return p and p.secondary.enhanceFiveBar end,
+                      setValue = function(v)
+                          local p = DB(); if not p then return end
+                          p.secondary.enhanceFiveBar = v; RebuildClass()
+                          EllesmereUI:RefreshPage()
+                      end },
+                    { type = "label", text = "" }); y = y - h
+                -- Inline color swatch for overflow color
+                do
+                    local rgn = enhRow._leftRegion
+                    local swatch = EllesmereUI.BuildColorSwatch(
+                        rgn, enhRow:GetFrameLevel() + 3,
+                        function()
+                            local p = DB(); if not p then return 1, 0.6, 0.2, 1 end
+                            local s = p.secondary
+                            return s.enhanceOverflowR or 1, s.enhanceOverflowG or 0.6, s.enhanceOverflowB or 0.2, 1
+                        end,
+                        function(r, g, b)
+                            local p = DB(); if not p then return end
+                            p.secondary.enhanceOverflowR = r
+                            p.secondary.enhanceOverflowG = g
+                            p.secondary.enhanceOverflowB = b
+                            SmoothRefresh()
+                        end, false, 20)
+                    swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                    rgn._lastInline = swatch
+                    local function UpdateEnhSwatchVis()
+                        local p = DB()
+                        local off = not p or not p.secondary.enabled or not p.secondary.enhanceFiveBar or GetSpecialization() ~= 2
+                        swatch:SetAlpha(off and 0.3 or 1)
+                    end
+                    EllesmereUI.RegisterWidgetRefresh(UpdateEnhSwatchVis)
+                    UpdateEnhSwatchVis()
+                end
             end
         end
 

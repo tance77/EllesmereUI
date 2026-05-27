@@ -2282,7 +2282,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
                 btn.IconOverlay:SetAlpha(0)
             end
         end
-        if btn.icon and data.info and data.info.itemID then
+        if btn.icon and data._isGear and data.info and data.info.itemID then
             local id = data.info.itemID
             local canUse = _canUseCache[id]
             if canUse == nil and C_PlayerInfo and C_PlayerInfo.CanUseItem then
